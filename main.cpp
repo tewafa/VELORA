@@ -198,6 +198,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
+    // Set ImGui style/theme
     SetModernImGuiStyle();
 
     ImFont* logoFont = io.Fonts->AddFontFromFileTTF(
@@ -219,15 +220,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ImFont* bottombarFont = io.Fonts->AddFontFromFileTTF(
         "C:\\Users\\scemmaz\\Desktop\\VELORA\\VELORA\\resources\\fonts\\Unageo-Light.ttf", 16.0f
     );
-
-    ImGuiStyle& style = ImGui::GetStyle();
-    ImVec4 customBg = ImVec4(0.098f, 0.098f, 0.114f, 1.0f);
-    style.Colors[ImGuiCol_WindowBg] = customBg;
-    style.Colors[ImGuiCol_ChildBg] = customBg;
-    ImVec4 borderColor = ImVec4(32.0f / 255.0f, 32.0f / 255.0f, 38.0f / 255.0f, 1.0f);
-    style.Colors[ImGuiCol_Border] = borderColor;
-    style.Colors[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
-    style.WindowBorderSize = 1.0f;
 
     ImGui_ImplWin32_Init(g_hWnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
@@ -325,10 +317,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             draw_list->AddRect(
                 ImVec2(winPos.x, winPos.y),
                 ImVec2(winPos.x + winSize.x, winPos.y + topbarHeight),
-                ImGui::ColorConvertFloat4ToU32(borderColor),
+                ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Border]),
                 0.0f,
                 0,
-                style.WindowBorderSize
+                ImGui::GetStyle().WindowBorderSize
             );
 
             // --- DRAGGING HANDLER ---
@@ -360,7 +352,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             ImGui::PopStyleVar(2);
 
             draw_list->AddRect(btnPos, ImVec2(btnPos.x + btnSize, btnPos.y + btnSize),
-                ImGui::ColorConvertFloat4ToU32(borderColor), 0.0f, 0, style.WindowBorderSize);
+                ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Border]), 0.0f, 0, ImGui::GetStyle().WindowBorderSize);
 
             ImVec2 iconPos = ImVec2(
                 btnPos.x + (btnSize - iconSize) * 0.5f,
@@ -428,16 +420,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
                 ImVec2(sbarWinPos.x, sbarWinPos.y),
                 ImVec2(sbarWinPos.x + sbarWinSize.x, sbarWinPos.y + topbarHeight),
                 ImGui::ColorConvertFloat4ToU32(barColor),
-                style.WindowRounding,
+                ImGui::GetStyle().WindowRounding,
                 ImDrawFlags_RoundCornersTop
             );
             sbar_draw_list->AddRect(
                 ImVec2(sbarWinPos.x, sbarWinPos.y),
                 ImVec2(sbarWinPos.x + sbarWinSize.x, sbarWinPos.y + topbarHeight),
-                ImGui::ColorConvertFloat4ToU32(borderColor),
-                style.WindowRounding,
+                ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Border]),
+                ImGui::GetStyle().WindowRounding,
                 ImDrawFlags_RoundCornersTop,
-                style.WindowBorderSize
+                ImGui::GetStyle().WindowBorderSize
             );
 
             float fontSize = 38.0f;
@@ -473,19 +465,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             ImGui::PopFont();
             ImGui::Dummy(ImVec2(sbarWinSize.x, topbarHeight));
         }
-
-        // --- Sidebar Tabs with Animated Dropdowns ---
+        // sidebar
         ImGui::Spacing();
         for (size_t i = 0; i < sidebarTabs.size(); ++i) {
             SidebarTab& tab = sidebarTabs[i];
             ImGui::PushID((int)i);
+
+            // Handle text color
+            if (tab.open) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.89f, 0.89f, 0.89f, 1.0f)); // #E3E3E3
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.137f, 0.137f, 0.164f, 1.0f)); // #23232A
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.137f, 0.137f, 0.164f, 1.0f)); // #23232A
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.137f, 0.137f, 0.164f, 1.0f)); // #23232A
+            }
+            else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.32f, 0.32f, 0.37f, 1.0f)); // #52525E
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0.0f)); // transparent
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.0f)); // transparent
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0.0f)); // transparent
+            }
+
             if (ImGui::Button(tab.name.c_str(), ImVec2(-FLT_MIN, 32))) {
                 bool wasOpen = tab.open;
-                // Close all, then open the clicked one if it wasn't open already
                 for (auto& t : sidebarTabs) t.open = false;
                 tab.open = !wasOpen;
                 if (tab.open) selectedMainTab = (int)i;
             }
+            ImGui::PopStyleColor(4);
 
             float anim = tab.anim_progress;
             if (anim > 0.0f) {
@@ -507,7 +513,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             ImGui::PopID();
             ImGui::Spacing();
         }
-
         // --- Sidebar Bottombar ---
         {
             ImVec2 sbarWinPos = ImGui::GetWindowPos();
@@ -519,23 +524,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
                 ImVec2(sbarWinPos.x, y_bottombar),
                 ImVec2(sbarWinPos.x + sbarWinSize.x, sbarWinPos.y + sbarWinSize.y),
                 ImGui::ColorConvertFloat4ToU32(barColor),
-                style.WindowRounding,
+                ImGui::GetStyle().WindowRounding,
                 ImDrawFlags_RoundCornersBottom
             );
             sbar_draw_list->AddRect(
                 ImVec2(sbarWinPos.x, y_bottombar),
                 ImVec2(sbarWinPos.x + sbarWinSize.x, sbarWinPos.y + sbarWinSize.y),
-                ImGui::ColorConvertFloat4ToU32(borderColor),
-                style.WindowRounding,
+                ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Border]),
+                ImGui::GetStyle().WindowRounding,
                 ImDrawFlags_RoundCornersBottom,
-                style.WindowBorderSize
+                ImGui::GetStyle().WindowBorderSize
             );
 
             float nameFontSize = 16.0f;
             float dateFontSize = 13.0f;
             ImFont* font = bottombarFont;
 
-            const char* leftText = u8"Virex ©";
+            const char* leftText = u8"Virex \uFFFD";
             const char* rightText = todayStr;
 
             ImU32 leftColor = ImGui::ColorConvertFloat4ToU32(ImVec4(0xF1 / 255.0f, 0xF1 / 255.0f, 0xF1 / 255.0f, 1.0f));
