@@ -1,3 +1,5 @@
+// main.cpp -- ImGui DirectX11 Overlay with Sidebar, Topbar, Settings Popup (settings always ON mainpanel, top-right, with App Exit button only)
+
 #include <windows.h>
 #include <d3d11.h>
 #include <ctime>
@@ -15,7 +17,10 @@
 
 #pragma comment(lib, "d3d11.lib")
 
-// --- Clamp helper for C++14/11 compatibility ---
+#ifndef IM_PI
+#define IM_PI 3.14159265358979323846f
+#endif
+
 template<typename T>
 T clamp(T v, T lo, T hi) {
     return (v < lo) ? lo : (v > hi) ? hi : v;
@@ -139,8 +144,12 @@ struct SidebarTab {
     float anim_progress = 0.0f; // For dropdown animation
 };
 std::vector<SidebarTab> sidebarTabs = {
-    {"Account", {"Info", "Notes"}, false, 0, 0.0f},
-    {"Settings", {"General", "Security"}, false, 0, 0.0f}
+    {"Dashboard", {"Overview", "Logs"}, false, 0, 0.0f},
+    {"Accounts", {"Manager"}, false, 0, 0.0f},
+    {"Trade Bot", {"Overview", "Trade History", "Config"}, false, 0, 0.0f},
+    {"Groups", {"Alpha", "Bravo", "Charlie"}, false, 0, 0.0f},
+    {"Sniper", {"Sniper", "Config"}, false, 0, 0.0f},
+    {"Games", {"Games"}, false, 0, 0.0f}
 };
 int selectedMainTab = 0;
 
@@ -166,6 +175,80 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
+
+static bool showSettings = false;
+inline void DrawSettingsButtonAndPopup(
+    ImVec2 winPos, ImVec2 winSize, float btnSize, float iconSize, ImTextureID settingsIconSRV, ImVec4 barColor)
+{
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 btnPos = ImVec2(winPos.x + winSize.x - btnSize, winPos.y);
+
+    ImGui::SetCursorScreenPos(btnPos);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Button, barColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, barColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, barColor);
+
+    bool clicked = ImGui::Button("##settings", ImVec2(btnSize, btnSize));
+    if (clicked) showSettings = !showSettings;
+
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
+
+    // Draw icon over button
+    ImVec2 iconPos = ImVec2(
+        btnPos.x + (btnSize - iconSize) * 0.5f,
+        btnPos.y + (btnSize - iconSize) * 0.5f
+    );
+    draw_list->AddImage(
+        settingsIconSRV,
+        iconPos,
+        ImVec2(iconPos.x + iconSize, iconPos.y + iconSize)
+    );
+
+    // Draw button border
+    draw_list->AddRect(btnPos, ImVec2(btnPos.x + btnSize, btnPos.y + btnSize),
+        ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Border]), 0.0f, 0, ImGui::GetStyle().WindowBorderSize);
+
+    if (showSettings) {
+        float popupWidth = 240.0f, popupHeight = 200.0f;
+        float padding = 14.0f;
+        ImVec2 popupPos = ImVec2(winPos.x + winSize.x - popupWidth - padding, winPos.y + 40.0f + padding);
+
+        ImGui::SetNextWindowPos(popupPos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(popupWidth, popupHeight), ImGuiCond_Always);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 12));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+
+        ImGui::Begin("##SettingsPanel",
+            &showSettings,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar);
+
+        ImGui::Text("Settings");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // Move cursor to the bottom for the Exit button
+        float buttonHeight = 36.0f;
+        float spaceToBottom = ImGui::GetWindowHeight() - ImGui::GetCursorPosY() - buttonHeight - 8.0f; // 8px bottom margin
+        if (spaceToBottom > 0)
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + spaceToBottom);
+
+        // Exit button: exits the application
+        float buttonWidth = ImGui::GetContentRegionAvail().x;
+        if (ImGui::Button("End Session", ImVec2(buttonWidth, buttonHeight))) {
+            PostMessage(g_hWnd, WM_CLOSE, 0, 0);
+        }
+
+        ImGui::End();
+        ImGui::PopStyleVar(3);
+    }
+}
+
+// ... [rest of your code unchanged]
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"ImGui Overlay", NULL };
@@ -198,7 +281,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    // Set ImGui style/theme
     SetModernImGuiStyle();
 
     ImFont* logoFont = io.Fonts->AddFontFromFileTTF(
@@ -221,6 +303,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         "C:\\Users\\scemmaz\\Desktop\\VELORA\\VELORA\\resources\\fonts\\Unageo-Light.ttf", 16.0f
     );
 
+    int directionIconW = 0, directionIconH = 0;
+    ID3D11ShaderResourceView* directionIconSRV = LoadTextureFromFile(
+        "C:\\Users\\scemmaz\\Desktop\\VELORA\\VELORA\\resources\\icons\\direction.png",
+        &directionIconW, &directionIconH, g_pd3dDevice
+    );
+    if (!directionIconSRV) {
+        MessageBoxA(NULL, "Could not load direction.png!", "Icon Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+    const float sidebarIconSize = 15.0f;
+    const float sidebarIconPad = 15.0f;
+
     ImGui_ImplWin32_Init(g_hWnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
@@ -236,7 +330,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ImVec2 mainPos = ImVec2(width / 2 - mainSize.x / 2 + sidebarSize.x / 2, height / 2 - mainSize.y / 2);
 
     ImVec4 barColor = ImVec4(0.114f, 0.114f, 0.133f, 1.0f);
-
     ImVec4 glowPurple = ImVec4(168.0f / 255.0f, 99.0f / 255.0f, 255.0f / 255.0f, 1.0f);
 
     int settingsIconW = 0, settingsIconH = 0;
@@ -249,7 +342,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         return 1;
     }
 
-    const char* todayStr = "2025-05-31";
+    char todayStr[32];
+    {
+        time_t now = time(nullptr);
+        struct tm local_tm;
+        localtime_s(&local_tm, &now);
+        strftime(todayStr, sizeof(todayStr), "%Y-%m-%d", &local_tm);
+    }
 
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
@@ -258,9 +357,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     bool dragging = false;
     ImVec2 dragOffset = ImVec2(0, 0);
 
-    // Animation config
     const float dropdown_speed = 8.0f;
-    const float subtab_height = 32.0f;
+    const float subtab_height = 20.0f;
 
     while (running) {
         while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
@@ -281,18 +379,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // Animate dropdowns
         float dt = ImGui::GetIO().DeltaTime;
         for (auto& tab : sidebarTabs) {
             float target = tab.open ? 1.0f : 0.0f;
-            if (tab.anim_progress != target) {
-                tab.anim_progress += (target - tab.anim_progress) * clamp(dt * dropdown_speed, 0.0f, 1.0f);
-                if (std::abs(tab.anim_progress - target) < 0.01f)
-                    tab.anim_progress = target;
-            }
+            const float animSpeed = 10.0f;
+            tab.anim_progress += (target - tab.anim_progress) * (1.0f - expf(-animSpeed * dt));
+            if (fabs(tab.anim_progress - target) < 0.001f)
+                tab.anim_progress = target;
         }
 
-        // --- Manual drag for the main panel and sidebar ---
         ImGui::SetNextWindowPos(mainPos, ImGuiCond_Always);
         ImGui::SetNextWindowSize(mainSize, ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(overlay_alpha);
@@ -302,28 +397,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
 
-        // --- Topbar background and settings button ---
         {
             ImVec2 winPos = ImGui::GetWindowPos();
             ImVec2 winSize = ImGui::GetWindowSize();
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            float rounding = ImGui::GetStyle().WindowRounding;
             draw_list->AddRectFilled(
                 ImVec2(winPos.x, winPos.y),
                 ImVec2(winPos.x + winSize.x, winPos.y + topbarHeight),
                 ImGui::ColorConvertFloat4ToU32(barColor),
-                0.0f
+                rounding,
+                ImDrawFlags_RoundCornersTop
             );
             draw_list->AddRect(
                 ImVec2(winPos.x, winPos.y),
                 ImVec2(winPos.x + winSize.x, winPos.y + topbarHeight),
                 ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Border]),
-                0.0f,
-                0,
+                rounding,
+                ImDrawFlags_RoundCornersTop,
                 ImGui::GetStyle().WindowBorderSize
             );
 
-            // --- DRAGGING HANDLER ---
             ImGui::SetCursorScreenPos(winPos);
             ImGui::InvisibleButton("##dragMainWin", ImVec2(winSize.x - 40.0f, topbarHeight));
             if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
@@ -337,69 +432,51 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
                 dragging = false;
 
             float btnSize = 40.0f;
-            float iconSize = 16.0f; // Icon size in button
-            ImVec2 btnPos = ImVec2(winPos.x + winSize.x - btnSize, winPos.y);
-            ImGui::SetCursorScreenPos(btnPos);
-
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-            ImGui::PushStyleColor(ImGuiCol_Button, barColor);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, barColor);
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, barColor);
-
-            ImGui::Button("##settings", ImVec2(btnSize, btnSize));
-            ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar(2);
-
-            draw_list->AddRect(btnPos, ImVec2(btnPos.x + btnSize, btnPos.y + btnSize),
-                ImGui::ColorConvertFloat4ToU32(ImGui::GetStyle().Colors[ImGuiCol_Border]), 0.0f, 0, ImGui::GetStyle().WindowBorderSize);
-
-            ImVec2 iconPos = ImVec2(
-                btnPos.x + (btnSize - iconSize) * 0.5f,
-                btnPos.y + (btnSize - iconSize) * 0.5f
-            );
-            draw_list->AddImage(
-                reinterpret_cast<ImTextureID>(settingsIconSRV),
-                iconPos,
-                ImVec2(iconPos.x + iconSize, iconPos.y + iconSize)
-            );
+            float iconSize = 16.0f;
+            DrawSettingsButtonAndPopup(winPos, winSize, btnSize, iconSize, (ImTextureID)settingsIconSRV, barColor);
 
             ImGui::SetCursorScreenPos(ImVec2(winPos.x, winPos.y + topbarHeight));
             ImGui::Dummy(ImVec2(winSize.x, topbarHeight));
         }
 
-        // --- MainPanel Content Area ---
         ImGui::BeginChild("ContentArea", ImVec2(0, -1), false);
         {
             SidebarTab& activeTab = sidebarTabs[selectedMainTab];
             int activeSub = activeTab.selectedSub;
 
-            ImGui::Text("%s > %s", activeTab.name.c_str(), activeTab.subs[activeSub].c_str());
+            ImGui::Text("%s > %s", activeTab.name.c_str(),
+                (!activeTab.subs.empty() && activeSub >= 0 && activeSub < (int)activeTab.subs.size())
+                ? activeTab.subs[activeSub].c_str() : "-");
             ImGui::Separator();
 
-            if (activeTab.name == "Account") {
-                if (activeSub == 0) {
-                    ImGui::Text("This is your account info. (You can add real content here.)");
-                }
-                else if (activeSub == 1) {
-                    ImGui::Text("These are your account notes. (You can add real content here.)");
-                }
+            if (activeTab.name == "Dashboard") {
+                if (activeSub == 0) { ImGui::Text("Dashboard Overview goes here."); }
+                else if (activeSub == 1) { ImGui::Text("Dashboard Logs go here."); }
             }
-            else if (activeTab.name == "Settings") {
-                if (activeSub == 0) {
-                    ImGui::Text("General settings shown here.");
-                }
-                else if (activeSub == 1) {
-                    ImGui::Text("Security settings for your account.");
-                }
+            else if (activeTab.name == "Accounts") {
+                if (activeSub == 0) { ImGui::Text("Accounts Manager goes here."); }
+            }
+            else if (activeTab.name == "Trade Bot") {
+                if (activeSub == 0) { ImGui::Text("Trade Bot Overview goes here."); }
+                else if (activeSub == 1) { ImGui::Text("Trade Bot History goes here."); }
+                else if (activeSub == 2) { ImGui::Text("Trade Bot Config goes here."); }
+            }
+            else if (activeTab.name == "Groups") {
+                ImGui::Text("Group: %s", activeTab.subs[activeSub].c_str());
+            }
+            else if (activeTab.name == "Sniper") {
+                if (activeSub == 0) { ImGui::Text("Sniper Panel goes here."); }
+                else if (activeSub == 1) { ImGui::Text("Sniper Config goes here."); }
+            }
+            else if (activeTab.name == "Games") {
+                ImGui::Text("Games goes here.");
             }
         }
         ImGui::EndChild();
 
-        ImGui::End(); // MainPanel
+        ImGui::End();
         ImGui::PopFont();
 
-        // --- Sidebar with animated dropdown tabs ---
         ImVec2 sidebarTargetPos = ImVec2(mainPos.x - sidebarSize.x - sidebarPadding, mainPos.y);
         ImGui::SetNextWindowPos(sidebarTargetPos, ImGuiCond_Always);
         ImGui::SetNextWindowSize(sidebarSize, ImGuiCond_Always);
@@ -410,7 +487,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
 
-        // --- Sidebar Topbar with Logo ---
         {
             ImVec2 sbarWinPos = ImGui::GetWindowPos();
             ImVec2 sbarWinSize = ImGui::GetWindowSize();
@@ -432,7 +508,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
                 ImGui::GetStyle().WindowBorderSize
             );
 
-            float fontSize = 38.0f;
+            float fontSize = 30.0f;
             ImFont* font = logoFont;
             const char* letters = "VELORA";
             int letterCount = 6;
@@ -465,55 +541,113 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             ImGui::PopFont();
             ImGui::Dummy(ImVec2(sbarWinSize.x, topbarHeight));
         }
-        // sidebar
+
         ImGui::Spacing();
         for (size_t i = 0; i < sidebarTabs.size(); ++i) {
             SidebarTab& tab = sidebarTabs[i];
             ImGui::PushID((int)i);
 
-            // Handle text color
+            ImVec4 txtColor, btnBg;
             if (tab.open) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.89f, 0.89f, 0.89f, 1.0f)); // #E3E3E3
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.137f, 0.137f, 0.164f, 1.0f)); // #23232A
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.137f, 0.137f, 0.164f, 1.0f)); // #23232A
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.137f, 0.137f, 0.164f, 1.0f)); // #23232A
+                txtColor = ImVec4(0.89f, 0.89f, 0.89f, 1.0f);
+                btnBg = ImVec4(0.137f, 0.137f, 0.164f, 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_Text, txtColor);
+                ImGui::PushStyleColor(ImGuiCol_Button, btnBg);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnBg);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnBg);
             }
             else {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.32f, 0.32f, 0.37f, 1.0f)); // #52525E
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0.0f)); // transparent
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.0f)); // transparent
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0.0f)); // transparent
+                txtColor = ImVec4(0.32f, 0.32f, 0.37f, 1.0f);
+                btnBg = ImVec4(0, 0, 0, 0.0f);
+                ImGui::PushStyleColor(ImGuiCol_Text, txtColor);
+                ImGui::PushStyleColor(ImGuiCol_Button, btnBg);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnBg);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnBg);
             }
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
 
-            if (ImGui::Button(tab.name.c_str(), ImVec2(-FLT_MIN, 32))) {
+            ImVec2 btnStart = ImGui::GetCursorScreenPos();
+            ImVec2 btnSize = ImVec2(ImGui::GetContentRegionAvail().x, 32);
+
+            float iconRightPad = sidebarIconPad;
+            float iconTotalWidth = sidebarIconPad + sidebarIconSize + iconRightPad;
+            float labelWidth = btnSize.x - iconTotalWidth;
+
+            ImGui::SetCursorScreenPos(btnStart);
+            ImGui::SetNextItemWidth(labelWidth);
+            bool clicked = ImGui::Button(tab.name.c_str(), btnSize);
+
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            ImTextureID tex = (ImTextureID)directionIconSRV;
+            float iconCenterX = btnStart.x + btnSize.x - (sidebarIconPad + sidebarIconSize * 0.5f);
+            float iconCenterY = btnStart.y + btnSize.y * 0.5f;
+            ImVec2 iconCenter = ImVec2(iconCenterX, iconCenterY);
+
+            float angle = tab.open ? 0.0f : IM_PI;
+            float c = cosf(angle), s = sinf(angle);
+            ImVec2 iconHalf(sidebarIconSize * 0.5f, sidebarIconSize * 0.5f);
+            ImVec2 corners[4] = {
+                ImVec2(-iconHalf.x, -iconHalf.y),
+                ImVec2(+iconHalf.x, -iconHalf.y),
+                ImVec2(+iconHalf.x, +iconHalf.y),
+                ImVec2(-iconHalf.x, +iconHalf.y)
+            };
+            for (int j = 0; j < 4; ++j) {
+                float x = corners[j].x, y = corners[j].y;
+                corners[j] = ImVec2(
+                    iconCenter.x + x * c - y * s,
+                    iconCenter.y + x * s + y * c
+                );
+            }
+            ImU32 tint = ImGui::ColorConvertFloat4ToU32(txtColor);
+            draw_list->AddImageQuad(tex,
+                corners[0], corners[1], corners[2], corners[3],
+                ImVec2(0, 0), ImVec2(1, 0), ImVec2(1, 1), ImVec2(0, 1), tint);
+
+            ImGui::SetCursorScreenPos(ImVec2(btnStart.x, btnStart.y + btnSize.y));
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(4);
+
+            if (clicked) {
                 bool wasOpen = tab.open;
                 for (auto& t : sidebarTabs) t.open = false;
                 tab.open = !wasOpen;
                 if (tab.open) selectedMainTab = (int)i;
             }
-            ImGui::PopStyleColor(4);
 
             float anim = tab.anim_progress;
             if (anim > 0.0f) {
-                float total_height = subtab_height * tab.subs.size();
+                float actual_item_height = ImGui::GetFrameHeightWithSpacing();
+                float total_height = actual_item_height * tab.subs.size() / 1.6;
                 float shown_height = total_height * anim;
                 ImGui::Indent(12.0f);
                 ImGui::BeginChild("dropdown", ImVec2(-FLT_MIN, shown_height), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
                 int visible_items = clamp(int(tab.subs.size() * anim + 0.999f), 0, (int)tab.subs.size());
                 for (int sub = 0; sub < visible_items; ++sub) {
-                    bool isSelected = (tab.selectedSub == sub);
-                    if (ImGui::Selectable(tab.subs[sub].c_str(), isSelected, 0, ImVec2(-FLT_MIN, subtab_height))) {
+                    if (tab.selectedSub == sub)
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.89f, 0.89f, 0.89f, 1.0f));
+                    else
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.32f, 0.32f, 0.37f, 1.0f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
+                    if (ImGui::Selectable(tab.subs[sub].c_str(), tab.selectedSub == sub, 0, ImVec2(ImGui::GetContentRegionAvail().x, subtab_height))) {
                         tab.selectedSub = sub;
                         selectedMainTab = (int)i;
                     }
+                    ImGui::PopStyleVar();
+                    ImGui::PopStyleColor();
                 }
                 ImGui::EndChild();
                 ImGui::Unindent(12.0f);
             }
             ImGui::PopID();
-            ImGui::Spacing();
+
+            ImVec4 borderCol = ImGui::GetStyle().Colors[ImGuiCol_Border];
+            ImGui::PushStyleColor(ImGuiCol_Separator, borderCol);
+            ImGui::Separator();
+            ImGui::PopStyleColor();
         }
-        // --- Sidebar Bottombar ---
+
         {
             ImVec2 sbarWinPos = ImGui::GetWindowPos();
             ImVec2 sbarWinSize = ImGui::GetWindowSize();
@@ -540,7 +674,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             float dateFontSize = 13.0f;
             ImFont* font = bottombarFont;
 
-            const char* leftText = u8"Virex \uFFFD";
+            const char* leftText = u8"Virex ©";
             const char* rightText = todayStr;
 
             ImU32 leftColor = ImGui::ColorConvertFloat4ToU32(ImVec4(0xF1 / 255.0f, 0xF1 / 255.0f, 0xF1 / 255.0f, 1.0f));
@@ -562,7 +696,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
             ImGui::Dummy(ImVec2(sbarWinSize.x, bottombarHeight));
         }
 
-        ImGui::End(); // Sidebar
+        ImGui::End();
         ImGui::PopFont();
 
         firstFrame = false;
@@ -575,6 +709,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         g_pSwapChain->Present(1, 0);
     }
 
+    if (directionIconSRV) directionIconSRV->Release();
     if (settingsIconSRV) settingsIconSRV->Release();
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
